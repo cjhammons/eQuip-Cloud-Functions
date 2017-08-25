@@ -65,4 +65,58 @@ exports.generateThumbnail = functions.storage.object().onChange(event => {
   }).then(() => fs.unlinkSync(tempFilePath));
 });
 
+//Based heavily on the sample firebase code found in this repo:
+// https://github.com/firebase/functions-samples/tree/master/fcm-notifications
+exports.onEquipmentReserved = functions.database.ref('/reservations/{reservationId}').onWrite(event => {
+    const reservationId = event.params.reservationId;
+    const reservation = event.data.current.val();
+    const ownerId = reservation.ownerId;
+    const borrowerId = reservation.borrowerId;
+    const equipmentId = reservation.equipmentId;
+
+    //Check if reservation was made or removed, return if removed
+    if (!event.data.val()) {
+        return console.log('Reservation ', reservationId, 'removed');
+    }
+
+    console.log('New reservation made by ', borrowerId, 'for ', equipmentId);
+
+    //List of device notification tokens belonging to the owner
+    const getDeviceTokensPromise = admin.database().ref('/users/' + ownerId + '/notificationTokens').once('value');
+
+    return Promise.all([getDeviceTokensPromise]).then(results => {
+       const tokensSnapshot = results[0];
+
+       //Exit if there are no device tokens to send to
+       if (!tokensSnapshot.hasChildren()) {
+           return console.log('No notification tokens for', ownerId);
+       }
+
+       console.log('There are', tokensSnapshot.numChildren(), 'tokens to send notifications to');
+
+       const payload = {
+           notification: {
+               title: 'You have a reservation!'
+           }
+       };
+
+       const tokens = Object.keys(tokensSnapshot.val());
+
+       return admin.messaging.sendToDevice(tokens, payload).then(response => {
+          const tokensToRemove = [];
+          response.results.forEach((results, index) => {
+              const error = result.error;
+              if (error) {
+                  console.error('Failure to send notification to', tokens[index], error);
+              } else {
+                  console.log('Notification sent to', ownerId)
+              }
+          });
+
+          return Promise.all(tokensToRemove)
+       });
+    });
+
+});
+
 
