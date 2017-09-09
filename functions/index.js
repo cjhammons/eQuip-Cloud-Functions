@@ -74,49 +74,67 @@ exports.onEquipmentReserved = functions.database.ref('/reservations/{reservation
     const borrowerId = reservation.borrowerId;
     const equipmentId = reservation.equipmentId;
 
+    if (event.data.previous.exists()) {
+      return;
+    }
     //Check if reservation was made or removed, return if removed
     if (!event.data.val()) {
         return console.log('Reservation ', reservationId, 'removed');
     }
 
-    console.log('New reservation made by ', borrowerId, 'for ', equipmentId);
+    return loadUsers().then(users => {
+      let tokens = [];
+      for (let user of users) {
+        if (user.userId == ownerId) {
+          for (let token of user.notificationTokens) {
+            // var token = user.notificationTokens;
+            if (token != "" && token != undefined) {
+              console.log(user);
+              tokens.push(token.toString());
+              console.log('Token ', token);
+            }
+          }
+        }  
+      }
 
-    //List of device notification tokens belonging to the owner
-    const getDeviceTokensPromise = admin.database().ref('/users/' + ownerId + '/notificationTokens').once('value');
-
-    return Promise.all([getDeviceTokensPromise]).then(results => {
-       const tokensSnapshot = results[0];
-
-       //Exit if there are no device tokens to send to
-       if (!tokensSnapshot.hasChildren()) {
-           return console.log('No notification tokens for', ownerId);
-       }
-
-       console.log('There are', tokensSnapshot.numChildren(), 'tokens to send notifications to');
-
-       const payload = {
-           notification: {
-               title: 'You have a reservation!'
-           }
-       };
-
-       const tokens = Object.keys(tokensSnapshot.val());
-
-       return admin.messaging.sendToDevice(tokens, payload).then(response => {
-          const tokensToRemove = [];
-          response.results.forEach((results, index) => {
-              const error = result.error;
-              if (error) {
-                  console.error('Failure to send notification to', tokens[index], error);
-              } else {
-                  console.log('Notification sent to', ownerId)
-              }
-          });
-
-          return Promise.all(tokensToRemove)
-       });
+      let payload = {
+        notification: {
+          title: 'Reservation',
+          body: 'Reservation Requested'
+        }
+      };
+      console.log('Notifying: ', tokens)
+      return admin.messaging().sendToDevice(tokens, payload);
     });
-
 });
+
+//calles loadUsers() and filters for a specific user
+function getUser(userId) {
+  return loadUsers().then(users => {
+    for (let user of users) {
+      if (user.userId == userId) {
+        return user;
+      } 
+    };
+  });
+}
+
+//Gets the users in the database
+function loadUsers() {
+  let userRef = admin.database().ref('/users');
+  let defer = new Promise((resolve, reject) => {
+		userRef.once('value', (snap) => {
+			let data = snap.val();
+      let users = [];
+      for (var property in data) {
+	      users.push(data[property]);
+      }
+			resolve(users);
+		}, (err) => {
+			reject(err);
+		});
+	});
+	return defer;
+}
 
 
