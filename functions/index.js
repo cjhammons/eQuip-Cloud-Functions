@@ -10,6 +10,18 @@ const fs = require('fs');
 const admin = require('firebase-admin');
 admin.initializeApp(functions.config().firebase);
 
+// Authenticate to Algolia Database.
+const algoliasearch = require('algoliasearch');
+const client = algoliasearch(functions.config().algolia.app_id, functions.config().algolia.api_key);
+
+// Name fo the algolia index for Blog posts content.
+const ALGOLIA_EQUIPMENT_INDEX_NAME = 'EQUIPMENT';
+const ALGOLIA_VENDORS_INDEX_NAME = 'VENDORS';
+
+/*-----------------------------------------------------------
+                            CLOUD FUNCTIONS
+  -----------------------------------------------------------*/
+
 exports.generateThumbnail = functions.storage.object().onChange(event => {
   const object = event.data; // The Storage object.
 
@@ -107,6 +119,39 @@ exports.onEquipmentReserved = functions.database.ref('/reservations/{reservation
       return admin.messaging().sendToDevice(tokens, payload);
     });
 });
+
+// Updates the search index when new blog entries are created or updated.
+exports.indexEntry = functions.database.ref('/equipment/{equipmentId}').onWrite(event => {
+  const index = client.initIndex(ALGOLIA_EQUIPMENT_INDEX_NAME);
+  const firebaseObject = {
+    text: event.data.val(),
+    objectID: event.data.val().equipmentId
+  };
+
+  return index.saveObject(firebaseObject);
+});
+
+// Starts a search query whenever a query is requested (by adding one to the `/search/queries`
+// element. Search results are then written under `/search/results`.
+exports.searchEntry = functions.database.ref('/search/queries/{queryid}').onWrite(event => {
+  const index = client.initIndex(ALGOLIA_EQUIPMENT_INDEX_NAME);
+
+  const query = event.data.val().query;
+  const key = event.data.key;
+
+  return index.search(query).then(content => {
+    const updates = {
+      '/search/last_query_timestamp': Date.parse(event.timestamp)
+    };
+    updates[`/search/results/${key}`] = content;
+    return admin.database().ref().update(updates);
+  });
+})
+
+
+/*-----------------------------------------------------------
+                            HELPER FUNCTIONS
+  -----------------------------------------------------------*/
 
 //calles loadUsers() and filters for a specific user
 function getUser(userId) {
