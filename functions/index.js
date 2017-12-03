@@ -36,7 +36,7 @@ exports.generateThumbnail = functions.storage.object().onChange(event => {
     console.log('This is not an image.');
     return;
   }
-
+//
   // Get the file name.
   const fileName = path.basename(filePath);
   // Exit if the image is already a thumbnail.
