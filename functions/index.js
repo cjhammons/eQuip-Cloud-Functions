@@ -133,18 +133,23 @@ exports.indexEntry = functions.database.ref('/equipment/{equipmentId}').onWrite(
 
 // Starts a search query whenever a query is requested (by adding one to the `/search/queries`
 // element. Search results are then written under `/search/results`.
-exports.searchEntry = functions.database.ref('/search/queries/{queryid}').onWrite(event => {
+exports.searchEntry = functions.database.ref('/search/searches/{queryid}').onWrite(event => {
   const index = client.initIndex(ALGOLIA_EQUIPMENT_INDEX_NAME);
 
   const query = event.data.val().query;
   const key = event.data.key;
+  console.log('Searching', query);
 
-  return index.search(query).then(content => {
-    const updates = {
-      '/search/last_query_timestamp': Date.parse(event.timestamp)
-    };
-    updates[`/search/results/${key}`] = content;
-    return admin.database().ref().update(updates);
+  return index.search({
+      query,
+      minimumAroundRadius: 50000
+    })
+    .then(content => {
+      const updates = {
+        '/search/last_query_timestamp': Date.parse(event.timestamp)
+      };
+      updates[`/search/results/${key}`] = content;
+      return admin.database().ref().update(updates);
   });
 })
 
