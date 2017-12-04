@@ -123,12 +123,18 @@ exports.onEquipmentReserved = functions.database.ref('/reservations/{reservation
 // Updates the search index when new blog entries are created or updated.
 exports.indexEntry = functions.database.ref('/equipment/{equipmentId}').onWrite(event => {
   const index = client.initIndex(ALGOLIA_EQUIPMENT_INDEX_NAME);
-  const firebaseObject = {
-    text: event.data.val(),
-    objectID: event.data.val().equipmentId
-  };
+  return index.saveObject(event.data.val());
+});
 
-  return index.saveObject(firebaseObject);
+exports.deleteIndexEntry = functions.database.ref('/equipment/{equipmentId}').onDelete(event => {
+  const index = client.initIndex(ALGOLIA_EQUIPMENT_INDEX_NAME);
+  index.deleteObject((equipmentId), function(err){
+    if (err) {
+      console.log(equipmentId, "not deleted successfully");
+    } else {
+      console.log(equipmentId, "deleted");
+    }
+  });
 });
 
 // Starts a search query whenever a query is requested (by adding one to the `/search/queries`
@@ -140,9 +146,14 @@ exports.searchEntry = functions.database.ref('/search/searches/{queryid}').onWri
   const key = event.data.key;
   console.log('Searching', query);
 
+  var minRadius = 50000;
+  if (event.data.val().minRadius) {
+    minRadius = event.data.val().minRadius;
+  }
+
   return index.search({
       query,
-      minimumAroundRadius: 50000
+      minimumAroundRadius: minRadius
     })
     .then(content => {
       const updates = {
