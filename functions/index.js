@@ -22,8 +22,7 @@ const ALGOLIA_VENDORS_INDEX_NAME = 'VENDORS';
                             CLOUD FUNCTIONS
   -----------------------------------------------------------*/
 
-exports.generateThumbnail = functions.storage.object().onChange(event => {
-  const object = event.data; // The Storage object.
+exports.generateThumbnail = functions.storage.object().onFinalize((object) => {
 
   const fileBucket = object.bucket; // The Storage bucket that contains the file.
   const filePath = object.name; // File path in the bucket.
