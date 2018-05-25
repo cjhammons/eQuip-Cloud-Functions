@@ -78,44 +78,80 @@ exports.generateThumbnail = functions.storage.object().onFinalize((object) => {
 
 //Based heavily on the sample firebase code found in this repo:
 // https://github.com/firebase/functions-samples/tree/master/fcm-notifications
-exports.onEquipmentReserved = functions.database.ref('/reservations/{reservationId}').onWrite(event => {
-    const reservationId = event.params.reservationId;
-    const reservation = event.data.current.val();
+exports.onEquipmentReserved = functions.database.ref('/reservations/{reservationId}').onWrite((snapshot, context) => {
+    const reservationId = context.params.reservationId;
+
+    if (!snapshot.after.val()) {
+      return console.log('Reservation removed');
+    }
+    console.log(snapshot.after);
+    const reservation = snapshot.after.val();
+    console.log('Reservation object:', reservation);
+
     const ownerId = reservation.ownerId;
     const borrowerId = reservation.borrowerId;
     const equipmentId = reservation.equipmentId;
 
-    if (event.data.previous.exists()) {
-      return;
-    }
-    //Check if reservation was made or removed, return if removed
-    if (!event.data.val()) {
-        return console.log('Reservation ', reservationId, 'removed');
-    }
+    const getDeviceTokensPromise = admin.database().ref(`/users/${ownerId}/notificationTokens`).once('value');
+    const getBorrowerProfilePromise = admin.database().ref(`/users/${borrowerId}`).once('value');
+    const getEquipmentPromise = admin.database().ref(`/equipment/${equipmentId}`).once('value');
 
-    return loadUsers().then(users => {
-      let tokens = [];
-      for (let user of users) {
-        if (user.userId == ownerId) {
-          for (let token of user.notificationTokens) {
-            // var token = user.notificationTokens;
-            if (token != "" && token != undefined) {
-              console.log(user);
-              tokens.push(token.toString());
-              console.log('Token ', token);
-            }
-          }
-        }
+    let tokensSnapshot;
+    let borrower;
+    let equipment;
+
+    let tokens;
+
+    return Promise.all([getDeviceTokensPromise, getBorrowerProfilePromise, getEquipmentPromise]).then(results => {
+      tokensSnapshot = results[0];
+      borrowerSnapshot = results[1];
+      equipmentSnapshot = results[2];
+
+      if (!tokensSnapshot.hasChildren()) {
+         return console.log('There are no notification tokens to send to.');
+      }
+      if (!borrowerSnapshot.hasChildren()) {
+        return console.log('Borrower profile not found.');
+      }
+      if (!equipmentSnapshot.hasChildren) {
+        return console.log('Equipment not found.');
       }
 
-      let payload = {
+      const borrower = borrowerSnapshot.val();
+      const equipment = equipmentSnapshot.val();
+
+      console.log('There are', tokensSnapshot.numChildren(), 'tokens to send notifications to.');
+
+
+      tokens = Object.keys(tokensSnapshot.val()).map((key) => {
+        return tokensSnapshot.val()[key];
+      });
+
+      const payload = {
         notification: {
-          title: 'Reservation',
-          body: 'Reservation Requested'
+          title: 'Someone has requested a reservation!',
+          body: `${borrower.displayName} wants to rent your ${equipment.name}!`
         }
       };
-      console.log('Notifying: ', tokens)
+
       return admin.messaging().sendToDevice(tokens, payload);
+    }).then((response) => {
+      // For each message check if there was an error.
+        const tokensToRemove = [];
+        response.results.forEach((result, index) => {
+          const error = result.error;
+          if (error) {
+            console.error('Failure sending notification to', tokens[index], error);
+            // Cleanup the tokens who are not registered anymore.
+            if (error.code === 'messaging/invalid-registration-token' ||
+                error.code === 'messaging/registration-token-not-registered') {
+              tokensToRemove.push(tokensSnapshot.ref.child(tokens[index]).remove());
+            }
+          }
+        });
+        return Promise.all(tokensToRemove);
+    }).catch((error) => {
+      return console.log('Notification error', error);
     });
 });
 
