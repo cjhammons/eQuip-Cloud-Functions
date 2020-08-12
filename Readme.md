@@ -3,6 +3,8 @@ eQuip used Firebase for all it's Database and file storage needs. In order to im
 
 The functions can be found in ``functions/index.js``
 
+You can find the main Android app [here](https://github.com/cjhammons/eQuip-Android)
+
 ### Technologies used
 - nodeJS
 - Firebase
